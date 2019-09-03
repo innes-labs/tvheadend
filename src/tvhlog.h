@@ -192,6 +192,7 @@ enum {
   LS_SCANFILE,
   LS_TSFILE,
   LS_TSDEBUG,
+  LS_UDP,
   LS_LAST     /* keep this last */
 };
 
