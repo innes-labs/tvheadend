@@ -68,9 +68,17 @@ tvh_write(int fd, const void *buf, size_t len)
 {
   int64_t limit = mclk() + sec2mono(25);
   ssize_t c;
+  ssize_t towrite;
+  int txsize = len;
+  int sotype = SOCK_STREAM;
+  socklen_t sz = sizeof(sotype);
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &sotype, &sz) == -1 || sotype == SOCK_DGRAM) {
+    txsize = 188*7; // under MTU size for udp sockets
+  }
 
   while (len) {
-    c = write(fd, buf, len);
+    towrite = (len > txsize)? txsize: len;
+    c = write(fd, buf, towrite);
     if (c < 0) {
       if (ERRNO_AGAIN(errno)) {
         if (mclk() > limit)
