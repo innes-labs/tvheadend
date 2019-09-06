@@ -64,6 +64,8 @@ enum {
 };
 
 static int webui_xspf;
+static tvh_mutex_t udp_streams_mutex = TVH_THREAD_MUTEX_INITIALIZER;
+static struct udp_stream_list udp_streams;
 
 /**
  *
@@ -1229,6 +1231,8 @@ udp_stream_service(http_connection_t *hc, service_t *service, int weight)
   void *tcp_id;
   int res = HTTP_STATUS_SERVICE;
   int flags, eflags = 0;
+  udp_stream_t *ustream;
+  int pos;
 
   if ((str = http_arg_get(&hc->hc_req_args, "port"))) {
     port = atol(str);
@@ -1299,7 +1303,23 @@ udp_stream_service(http_connection_t *hc, service_t *service, int weight)
       http_output_html(hc);
       close(hc->hc_fd);
       hc->hc_fd = uc->fd;
+      ustream = calloc(1,sizeof(udp_stream_t));
+      ustream->us_hc = hc;
+      ustream->us_stop_url = strdup(hc->hc_url_orig);
+      unlen = strlen(hc->hc_url_orig) - 1;
+      str = strstr(hc->hc_url_orig, "start");
+      pos = str - hc->hc_url_orig;
+      if (str && (pos > 0))
+        snprintf(&ustream->us_stop_url[pos], unlen-pos+1, "stop%s", &str[5]);
+      tvh_mutex_lock(&udp_streams_mutex);
+      LIST_INSERT_HEAD(&udp_streams, ustream, us_link);
+      tvh_mutex_unlock(&udp_streams_mutex);
       http_stream_run(hc, &prch, name, s, 1);
+      tvh_mutex_lock(&udp_streams_mutex);
+      LIST_REMOVE(ustream, us_link);
+      tvh_mutex_unlock(&udp_streams_mutex);
+      free(ustream->us_stop_url);
+      free(ustream);
       tvh_mutex_lock(&global_lock);
       subscription_unsubscribe(s, UNSUBSCRIBE_FINAL);
       res = 0;
@@ -1471,6 +1491,8 @@ udp_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
   int port;
   void *tcp_id;
   int res = HTTP_STATUS_SERVICE;
+  udp_stream_t *ustream;
+  int pos;
 
   if ((str = http_arg_get(&hc->hc_req_args, "port"))) {
     port = atol(str);
@@ -1530,7 +1552,23 @@ udp_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
       http_output_html(hc);
       close(hc->hc_fd);
       hc->hc_fd = uc->fd;
+      ustream = calloc(1,sizeof(udp_stream_t));
+      ustream->us_hc = hc;
+      ustream->us_stop_url = strdup(hc->hc_url_orig);
+      unlen = strlen(hc->hc_url_orig) - 1;
+      str = strstr(hc->hc_url_orig, "start");
+      pos = str - hc->hc_url_orig;
+      if (str && (pos > 0))
+        snprintf(&ustream->us_stop_url[pos], unlen-pos+1, "stop%s", &str[5]);
+      tvh_mutex_lock(&udp_streams_mutex);
+      LIST_INSERT_HEAD(&udp_streams, ustream, us_link);
+      tvh_mutex_unlock(&udp_streams_mutex);
       http_stream_run(hc, &prch, name, s, 1);
+      tvh_mutex_lock(&udp_streams_mutex);
+      LIST_REMOVE(ustream, us_link);
+      tvh_mutex_unlock(&udp_streams_mutex);
+      free(ustream->us_stop_url);
+      free(ustream);
       tvh_mutex_lock(&global_lock);
       subscription_unsubscribe(s, UNSUBSCRIBE_FINAL);
       res = 0;
@@ -1544,14 +1582,6 @@ udp_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
   return res;
 }
 
-/**
- * Handle the http request. http://tvheadend/stream/channelid/<chid>
- *                          http://tvheadend/stream/channel/<uuid>
- *                          http://tvheadend/stream/channelnumber/<channelnumber>
- *                          http://tvheadend/stream/channelname/<channelname>
- *                          http://tvheadend/stream/service/<servicename>
- *                          http://tvheadend/stream/mux/<muxid>
- */
 static int
 do_stream(http_connection_t *hc, const char *remain, void *opaque, int isUdp)
 {
@@ -1626,16 +1656,58 @@ http_stream(http_connection_t *hc, const char *remain, void *opaque) {
 }
 
 /**
- * Handle the http request. http://tvheadend/udpstream/channelid/<chid>
- *                          http://tvheadend/udpstream/channel/<uuid>
- *                          http://tvheadend/udpstream/channelnumber/<channelnumber>
- *                          http://tvheadend/udpstream/channelname/<channelname>
- *                          http://tvheadend/udpstream/service/<servicename>
- *                          http://tvheadend/udpstream/mux/<muxid>
+ * Handle the http request. http://tvheadend/udpstream/start/channelid/<chid>?address=<destaddr>&port=<udpport>
+ *                          http://tvheadend/udpstream/start/channel/<uuid>?address=<destaddr>&port=<udpport>
+ *                          http://tvheadend/udpstream/start/channelnumber/<channelnumber>?address=<destaddr>&port=<udpport>
+ *                          http://tvheadend/udpstream/start/channelname/<channelname>?address=<destaddr>&port=<udpport>
+ *                          http://tvheadend/udpstream/start/service/<servicename>?address=<destaddr>&port=<udpport>
  */
 static int
-udp_stream(http_connection_t *hc, const char *remain, void *opaque) {
+start_udp_stream(http_connection_t *hc, const char *remain, void *opaque) {
   return do_stream(hc, remain, opaque, 1);
+}
+
+/**
+ * Handle the http request. http://tvheadend/udpstream/stop/channelid/<chid>?address=<destaddr>&port=<udpport>
+ *                          http://tvheadend/udpstream/stop/channel/<uuid>?address=<destaddr>&port=<udpport>
+ *                          http://tvheadend/udpstream/stop/channelnumber/<channelnumber>?address=<destaddr>&port=<udpport>
+ *                          http://tvheadend/udpstream/stop/channelname/<channelname>?address=<destaddr>&port=<udpport>
+ *                          http://tvheadend/udpstream/stop/service/<servicename>?address=<destaddr>&port=<udpport>
+ */
+static int
+stop_udp_stream(http_connection_t *hc, const char *remain, void *opaque) {
+  char *components[2];
+  udp_stream_t *us;
+  int found = 0;
+
+  hc->hc_keep_alive = 0;
+
+  if(remain == NULL)
+    return HTTP_STATUS_BAD_REQUEST;
+
+  if(http_tokenize((char *)remain, components, 2, '/') != 2)
+    return HTTP_STATUS_BAD_REQUEST;
+
+  http_deescape(components[1]);
+
+  tvh_mutex_lock(&udp_streams_mutex);
+  LIST_FOREACH(us, &udp_streams, us_link)
+    if(strcmp(us->us_stop_url, hc->hc_url_orig) == 0) {
+      found = 1;
+      break;
+    }
+  tvh_mutex_unlock(&udp_streams_mutex);
+
+  if (found) {
+    tvhdebug(LS_WEBUI, "Stop UDP stream started by %s", us->us_hc->hc_url_orig);
+    http_cancel(us->us_hc);
+  } else {
+    tvhwarn(LS_WEBUI,  "UDP stream not found (stop request %s)", hc->hc_url_orig);
+  }
+
+  http_output_html(hc);
+  close(hc->hc_fd);
+  return 0;
 }
 
 /**
@@ -2393,7 +2465,8 @@ webui_init(int xspf)
   http_path_add("/state", NULL, page_statedump, ACCESS_ADMIN);
 
   http_path_add("/stream",  NULL, http_stream,  ACCESS_ANONYMOUS);
-  http_path_add("/udpstream",  NULL, udp_stream,  ACCESS_ANONYMOUS);
+  http_path_add("/udpstream/start",  NULL, start_udp_stream,  ACCESS_ANONYMOUS);
+  http_path_add("/udpstream/stop",  NULL, stop_udp_stream,  ACCESS_ANONYMOUS);
 
   http_path_add("/imagecache", NULL, page_imagecache, ACCESS_ANONYMOUS);
 

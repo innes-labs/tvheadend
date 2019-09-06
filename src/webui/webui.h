@@ -27,6 +27,14 @@
 #define MIME_E2       "application/x-e2-bouquet"
 #define MIME_XSPF_XML "application/xspf+xml"
 
+typedef struct udp_stream {
+  LIST_ENTRY(udp_stream) us_link;
+  char *us_stop_url;
+  http_connection_t *us_hc;
+} udp_stream_t;
+
+LIST_HEAD(udp_stream_list, udp_stream);
+
 void webui_init(int xspf);
 void webui_done(void);
 
