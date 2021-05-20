@@ -1280,6 +1280,7 @@ udp_stream_service(http_connection_t *hc, service_t *service, int weight)
     if(s) {
       ustream->us_content_name = strdup(service->s_nicename);
       ustream->us_subscript = s;
+      ustream->us_global_lock = &global_lock;
       udp_stream_run(ustream);
       http_output_html(hc);
       close(hc->hc_fd);
@@ -1521,6 +1522,7 @@ udp_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
     if(s) {
       ustream->us_content_name = strdup(channel_get_name(ch, channel_blank_name));
       ustream->us_subscript = s;
+      ustream->us_global_lock = &global_lock;
       udp_stream_run(ustream);
       http_output_html(hc);
       close(hc->hc_fd);
@@ -1645,13 +1647,6 @@ stop_udp_stream(http_connection_t *hc, const char *remain, void *opaque) {
   if (us) {
     tvhdebug(LS_WEBUI, "Stop UDP stream %s", us->us_udp_url);
     udp_stream_shutdown(us);
-    tvh_mutex_lock(&global_lock);
-    subscription_unsubscribe(us->us_subscript, UNSUBSCRIBE_FINAL);
-    profile_chain_close(&us->us_prch);
-    tvh_mutex_unlock(&global_lock);
-    udp_close(us->us_uc);
-    free(us->us_content_name);
-    delete_udp_stream(us);    
   } else {
     tvhwarn(LS_WEBUI,  "UDP stream not found (stop request %s)", hc->hc_url_orig);
   }

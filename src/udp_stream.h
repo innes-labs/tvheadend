@@ -33,6 +33,7 @@ typedef struct udp_stream {
   char *us_content_name;
   pthread_t us_tid;
   int us_running;
+  tvh_mutex_t* us_global_lock;
 } udp_stream_t;
 
 LIST_HEAD(udp_stream_list, udp_stream);

@@ -53,8 +53,6 @@ create_udp_stream ( udp_connection_t *uc, const char *hint )
 void
 delete_udp_stream (udp_stream_t * ustream)
 {
-  if (atomic_get(&ustream->us_running))
-    udp_stream_shutdown(ustream);
   tvh_mutex_lock(&udp_streams_mutex);
   LIST_REMOVE(ustream, us_link);
   tvh_mutex_unlock(&udp_streams_mutex);
@@ -235,6 +233,13 @@ udp_stream_thread ( void *aux )
   if(started)
     muxer_close(mux);
   atomic_set(&us->us_running, 0);
+  tvh_mutex_lock(us->us_global_lock);
+  subscription_unsubscribe(us->us_subscript, UNSUBSCRIBE_FINAL);
+  profile_chain_close(&us->us_prch);
+  tvh_mutex_unlock(us->us_global_lock);
+  udp_close(us->us_uc);
+  free(us->us_content_name);
+  delete_udp_stream(us); 
   return NULL;  
 }
 
